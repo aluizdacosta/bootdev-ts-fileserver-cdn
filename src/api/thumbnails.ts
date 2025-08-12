@@ -5,6 +5,7 @@ import type { ApiConfig } from "../config";
 import type { BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import path from "path";
+import { randomBytes } from "crypto";
 
 function getFileExtension(mediaType: string): string {
   const mimeToExt: Record<string, string> = {
@@ -70,8 +71,10 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
   // Determine file extension from media type
   const fileExtension = getFileExtension(mediaType);
   
-  // Create file path using path.join and cfg.assetsRoot
-  const fileName = `${videoId}.${fileExtension}`;
+  // Generate random filename using 32 random bytes converted to base64url
+  const randomBuffer = randomBytes(32);
+  const randomFileName = randomBuffer.toString("base64url");
+  const fileName = `${randomFileName}.${fileExtension}`;
   const filePath = path.join(cfg.assetsRoot, fileName);
   
   // Save the file to disk using Bun.write
