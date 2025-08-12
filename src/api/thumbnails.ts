@@ -4,36 +4,19 @@ import { getVideo, updateVideo } from "../db/videos";
 import type { ApiConfig } from "../config";
 import type { BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
+import path from "path";
 
-type Thumbnail = {
-  data: ArrayBuffer;
-  mediaType: string;
-};
-
-const videoThumbnails: Map<string, Thumbnail> = new Map();
-
-export async function handlerGetThumbnail(cfg: ApiConfig, req: BunRequest) {
-  const { videoId } = req.params as { videoId?: string };
-  if (!videoId) {
-    throw new BadRequestError("Invalid video ID");
-  }
-
-  const video = getVideo(cfg.db, videoId);
-  if (!video) {
-    throw new NotFoundError("Couldn't find video");
-  }
-
-  const thumbnail = videoThumbnails.get(videoId);
-  if (!thumbnail) {
-    throw new NotFoundError("Thumbnail not found");
-  }
-
-  return new Response(thumbnail.data, {
-    headers: {
-      "Content-Type": thumbnail.mediaType,
-      "Cache-Control": "no-store",
-    },
-  });
+function getFileExtension(mediaType: string): string {
+  const mimeToExt: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg", 
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg"
+  };
+  
+  return mimeToExt[mediaType] || "jpg";
 }
 
 export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
@@ -79,14 +62,18 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
     throw new UserForbiddenError("User is not authorized to upload thumbnail for this video");
   }
 
-  // Save the thumbnail to the global map
-  videoThumbnails.set(videoId, {
-    data,
-    mediaType,
-  });
-
-  // Generate the thumbnail URL
-  const thumbnailURL = `http://localhost:${cfg.port}/api/thumbnails/${videoId}`;
+  // Determine file extension from media type
+  const fileExtension = getFileExtension(mediaType);
+  
+  // Create file path using path.join and cfg.assetsRoot
+  const fileName = `${videoId}.${fileExtension}`;
+  const filePath = path.join(cfg.assetsRoot, fileName);
+  
+  // Save the file to disk using Bun.write
+  await Bun.write(filePath, data);
+  
+  // Create thumbnail URL pointing to the assets endpoint
+  const thumbnailURL = `http://localhost:${cfg.port}/assets/${fileName}`;
 
   // Update the video metadata with the new thumbnail URL
   const updatedVideo = {

@@ -5,7 +5,7 @@
   "private": true,
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
-    "@types/bun": "^1.2.7",
+    "@types/bun": "^1.2.20",
     "@types/jsonwebtoken": "^9.0.9"
   },
   "peerDependencies": {
