@@ -48,6 +48,11 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
   // Get the media type
   const mediaType = thumbnail.type;
   
+  // Validate media type - only allow JPEG and PNG
+  if (mediaType !== "image/jpeg" && mediaType !== "image/png") {
+    throw new BadRequestError("Only JPEG and PNG image formats are allowed for thumbnails");
+  }
+  
   // Read the image data into ArrayBuffer
   const data = await thumbnail.arrayBuffer();
 
