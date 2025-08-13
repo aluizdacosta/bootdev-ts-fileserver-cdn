@@ -64,6 +64,39 @@ async function getVideoAspectRatio(filePath: string): Promise<string> {
   }
 }
 
+async function processVideoForFastStart(inputFilePath: string): Promise<string> {
+  // Create output file path by appending .processed
+  const outputFilePath = `${inputFilePath}.processed`;
+  
+  // Use Bun.spawn to run ffmpeg command for fast start encoding
+  const proc = Bun.spawn([
+    "ffmpeg",
+    "-i", inputFilePath,
+    "-movflags", "faststart",
+    "-map_metadata", "0",
+    "-codec", "copy",
+    "-f", "mp4",
+    outputFilePath
+  ], {
+    stdout: "pipe",
+    stderr: "pipe"
+  });
+
+  // Read the contents of stdout and stderr
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  
+  // Wait for the process to exit and check the result
+  const exitCode = await proc.exited;
+  
+  if (exitCode !== 0) {
+    console.error("ffmpeg error:", stderr);
+    throw new Error(`ffmpeg failed with exit code ${exitCode}: ${stderr}`);
+  }
+
+  return outputFilePath;
+}
+
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   // Set upload limit of 1 GB
   const MAX_UPLOAD_SIZE = 1 << 30; // 1 GB = 1073741824 bytes
@@ -123,12 +156,15 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     // Get the aspect ratio of the video file
     const aspectRatio = await getVideoAspectRatio(tempFilePath);
     
+    // Process the video for fast start (web optimization)
+    const processedFilePath = await processVideoForFastStart(tempFilePath);
+    
     // Add aspect ratio as path prefix (folder structure)
     const keyWithPrefix = `${aspectRatio}/${fileName}`;
 
-    // Put the object into S3
+    // Put the processed video into S3
     const s3File = cfg.s3Client.file(keyWithPrefix);
-    await s3File.write(Bun.file(tempFilePath), {
+    await s3File.write(Bun.file(processedFilePath), {
       type: "video/mp4"
     });
 
@@ -147,12 +183,20 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     // Return the updated video metadata
     return respondWithJSON(200, updatedVideo);
   } finally {
-    // Remove the temporary file
+    // Remove the temporary files (original and processed)
     try {
       const fs = await import("fs/promises");
       await fs.unlink(tempFilePath);
+      
+      // Also remove the processed file if it exists
+      const processedFilePath = `${tempFilePath}.processed`;
+      try {
+        await fs.unlink(processedFilePath);
+      } catch (processedError) {
+        // Processed file might not exist if processing failed
+      }
     } catch (error) {
-      console.warn("Failed to clean up temporary file:", error);
+      console.warn("Failed to clean up temporary files:", error);
     }
   }
 }
