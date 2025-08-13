@@ -7,7 +7,6 @@ import path from "path";
 
 import { type ApiConfig } from "../config";
 import type { BunRequest } from "bun";
-import type { Video } from "../db/videos";
 
 async function getVideoAspectRatio(filePath: string): Promise<string> {
   // Use Bun.spawn to run ffprobe command
@@ -98,31 +97,7 @@ async function processVideoForFastStart(inputFilePath: string): Promise<string> 
   return outputFilePath;
 }
 
-function generatePresignedURL(cfg: ApiConfig, key: string, expireTime: number): string {
-  // Use Bun's S3Client.presign to generate the presigned URL
-  const s3File = cfg.s3Client.file(key);
-  return s3File.presign({ 
-    expiresIn: expireTime,
-    bucket: cfg.s3Bucket,
-    region: cfg.s3Region
-  });
-}
 
-export function dbVideoToSignedVideo(cfg: ApiConfig, video: Video): Video {
-  // If video doesn't have a videoURL (key), return as is
-  if (!video.videoURL) {
-    return video;
-  }
-  
-  // Generate presigned URL for the video key (expires in 1 hour = 3600 seconds)
-  const presignedURL = generatePresignedURL(cfg, video.videoURL, 3600);
-  
-  // Return video with presigned URL
-  return {
-    ...video,
-    videoURL: presignedURL
-  };
-}
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   // Set upload limit of 1 GB
@@ -195,20 +170,19 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
       type: "video/mp4"
     });
 
-    // Update the VideoURL of the video record in the database with just the key
+    // Create CloudFront URL using the distribution domain and key
+    const cloudFrontURL = `https://${cfg.s3CfDistribution}/${keyWithPrefix}`;
+    
     const updatedVideo = {
       ...video,
-      videoURL: keyWithPrefix,
+      videoURL: cloudFrontURL,
     };
 
     // Update the video in the database
     updateVideo(cfg.db, updatedVideo);
 
-    // Convert to signed video before returning
-    const signedVideo = dbVideoToSignedVideo(cfg, updatedVideo);
-
-    // Return the updated video metadata with presigned URL
-    return respondWithJSON(200, signedVideo);
+    // Return the updated video metadata
+    return respondWithJSON(200, updatedVideo);
   } finally {
     // Remove the temporary files (original and processed)
     try {
